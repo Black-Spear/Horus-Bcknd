@@ -12,9 +12,6 @@ const pool = new Pool({
   }
 });
 
-module.exports = pool;
-
-
 // Middlewares básicos
 app.use(cors());
 app.use(express.json());
@@ -34,4 +31,5 @@ const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`?? Horus backend online en puerto ${PORT}`);
 });
+
 
