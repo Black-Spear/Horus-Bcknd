@@ -247,4 +247,103 @@ app.post("/user/update-field", async (req, res) => {
   }
 });
 
+// POST /user/set-status
+app.post("/user/set-status", async (req, res) => {
+  const { username, status } = req.body;
+
+  try {
+    await pool.query(
+      "UPDATE users SET status = $1 WHERE username = $2",
+      [status, username]
+    );
+
+    res.json({ ok: true });
+
+  } catch (err) {
+    console.error("SET STATUS ERROR:", err);
+    res.status(500).json({ ok: false });
+  }
+});
+
+// POST /competitive/reset-all
+app.post("/competitive/reset-all", async (req, res) => {
+  try {
+    await pool.query(`
+      UPDATE users
+      SET rank = '{
+        "index":0,
+        "points":0,
+        "totalpoints":0,
+        "wins":0,
+        "losses":0
+      }'::jsonb
+    `);
+
+    res.json({ success: true });
+
+  } catch (err) {
+    console.error("RESET RANK ERROR:", err);
+    res.status(500).json({ success: false });
+  }
+});
+
+const RANKS = [
+  { key: "Saiyan Warrior", color: "#a76d00ff", threshold: 80, badge: "assets/icons/Badges/Low_0.png" },
+  { key: "Elite Saiyan Warrior", color: "#b1b1b1ff", threshold: 80, badge: "assets/icons/Badges/Low_1.png" },
+  { key: "Conquistador", color: "#00dbf8ff", threshold: 80, badge: "assets/icons/Badges/Mid_0.png" },
+  { key: "Catastrofe", color: "#00ff40ff", threshold: 80, badge: "assets/icons/Badges/Mid_1.png" },
+  { key: "Gran Maestro", color: "#9b59b6", threshold: 80, badge: "assets/icons/Badges/Mid_2.png" },
+  { key: "Señor de la Guerra I", color: "#e04242", threshold: 120, badge: "assets/icons/Badges/Superior_0.png" },
+  { key: "Señor de la Guerra II", color: "#ff3333", threshold: 200, badge: "assets/icons/Badges/Superior_1.png" },
+  { key: "Legenda", color: "#ffd700", threshold: 300, badge: "assets/icons/Badges/Superior_2.png" },
+  { key: "Dios de la Guerra", color: "#ffffff", threshold: 1000, badge: "assets/icons/Badges/Superior_God.png" }
+];
+
+async function calculateGlobalRanking() {
+  const res = await pool.query(`
+    SELECT
+      username,
+      avatar,
+      country,
+      rank,
+      hours_played AS "hoursPlayed"
+    FROM users
+    WHERE rank IS NOT NULL
+  `);
+
+  const users = res.rows;
+
+  users.sort((a, b) => {
+    const ra = a.rank?.index ?? 0;
+    const rb = b.rank?.index ?? 0;
+    if (ra !== rb) return rb - ra;
+
+    const ta = a.rank?.totalpoints ?? 0;
+    const tb = b.rank?.totalpoints ?? 0;
+    if (ta !== tb) return tb - ta;
+
+    return (b.rank?.wins ?? 0) - (a.rank?.wins ?? 0);
+  });
+
+  return users.map((u, i) => ({
+    name: u.username,
+    rankIndex: u.rank?.index ?? 0,
+    points: u.rank?.points ?? 0,
+    totalpoint: u.rank?.totalpoints ?? 0,
+    flag: u.country === "default" ? null : u.country,
+    rankIcon: RANKS[u.rank?.index ?? 0]?.badge,
+    hoursPlayed: u.hoursPlayed ?? 0,
+    position: i + 1
+  }));
+}
+
+app.get("/ranking/global", async (req, res) => {
+  try {
+    const ranking = await calculateGlobalRanking();
+    res.json(ranking);
+  } catch (err) {
+    console.error("GLOBAL RANK ERROR:", err);
+    res.status(500).json([]);
+  }
+});
 
