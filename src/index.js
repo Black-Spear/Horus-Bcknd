@@ -347,3 +347,208 @@ app.get("/ranking/global", async (req, res) => {
   }
 });
 
+// ===============================
+//   Friends SYSTEM
+// ===============================
+
+app.post("/friends/get", async (req, res) => {
+  const { username } = req.body;
+
+  try {
+    if (!username) {
+      return res.json({ ok: false, error: "NOT_LOGGED" });
+    }
+
+    const userRes = await pool.query(
+      "SELECT id FROM users WHERE username = $1",
+      [username]
+    );
+
+    if (userRes.rowCount === 0) {
+      return res.json({
+        ok: true,
+        data: { friends: [], incoming: [], outgoing: [] }
+      });
+    }
+
+    const userId = userRes.rows[0].id;
+
+    const friendsRes = await pool.query(`
+      SELECT u.username
+      FROM friends f
+      JOIN users u ON u.id =
+        CASE WHEN f.user_id = $1 THEN f.friend_id ELSE f.user_id END
+      WHERE (f.user_id = $1 OR f.friend_id = $1)
+        AND f.status = 'accepted'
+    `, [userId]);
+
+    const incomingRes = await pool.query(`
+      SELECT u.username
+      FROM friends f
+      JOIN users u ON u.id = f.user_id
+      WHERE f.friend_id = $1 AND f.status = 'pending'
+    `, [userId]);
+
+    const outgoingRes = await pool.query(`
+      SELECT u.username
+      FROM friends f
+      JOIN users u ON u.id = f.friend_id
+      WHERE f.user_id = $1 AND f.status = 'pending'
+    `, [userId]);
+
+    res.json({
+      ok: true,
+      data: {
+        friends: friendsRes.rows.map(r => r.username),
+        incoming: incomingRes.rows.map(r => r.username),
+        outgoing: outgoingRes.rows.map(r => r.username)
+      }
+    });
+
+  } catch (err) {
+    console.error("friends:get:", err);
+    res.status(500).json({ ok: false, error: "INTERNAL_ERROR" });
+  }
+});
+
+app.post("/friends/send", async (req, res) => {
+  const { username, toUser } = req.body;
+
+  try {
+    if (!username) return res.json({ ok: false, code: "NOT_LOGGED" });
+    if (username === toUser) return res.json({ ok: false, code: "ADD_SELF" });
+
+    const meRes = await pool.query(
+      "SELECT id FROM users WHERE username = $1",
+      [username]
+    );
+    const otherRes = await pool.query(
+      "SELECT id FROM users WHERE username = $1",
+      [toUser]
+    );
+
+    if (meRes.rowCount === 0) return res.json({ ok: false, code: "NOT_LOGGED" });
+    if (otherRes.rowCount === 0) return res.json({ ok: false, code: "USER_NOT_FOUND" });
+
+    const meId = meRes.rows[0].id;
+    const otherId = otherRes.rows[0].id;
+
+    const alreadyFriend = await pool.query(`
+      SELECT 1 FROM friends
+      WHERE status = 'accepted'
+        AND (
+          (user_id = $1 AND friend_id = $2) OR
+          (user_id = $2 AND friend_id = $1)
+        )
+    `, [meId, otherId]);
+
+    if (alreadyFriend.rowCount > 0) {
+      return res.json({ ok: false, code: "ALREADY_FRIEND" });
+    }
+
+    const alreadySent = await pool.query(`
+      SELECT 1 FROM friends
+      WHERE user_id = $1 AND friend_id = $2 AND status = 'pending'
+    `, [meId, otherId]);
+
+    if (alreadySent.rowCount > 0) {
+      return res.json({ ok: false, code: "REQUEST_ALREADY_SENT" });
+    }
+
+    const inverse = await pool.query(`
+      SELECT 1 FROM friends
+      WHERE user_id = $2 AND friend_id = $1 AND status = 'pending'
+    `, [meId, otherId]);
+
+    if (inverse.rowCount > 0) {
+      await pool.query(`
+        UPDATE friends
+        SET status = 'accepted'
+        WHERE user_id = $2 AND friend_id = $1
+      `, [meId, otherId]);
+
+      return res.json({ ok: true, autoAccepted: true });
+    }
+
+    await pool.query(`
+      INSERT INTO friends (user_id, friend_id, status)
+      VALUES ($1, $2, 'pending')
+    `, [meId, otherId]);
+
+    res.json({ ok: true });
+
+  } catch (err) {
+    console.error("friends:send:", err);
+    res.status(500).json({ ok: false, code: "INTERNAL_ERROR" });
+  }
+});
+
+app.post("/friends/accept", async (req, res) => {
+  const { username, fromUser } = req.body;
+
+  try {
+    const meRes = await pool.query("SELECT id FROM users WHERE username = $1", [username]);
+    const otherRes = await pool.query("SELECT id FROM users WHERE username = $1", [fromUser]);
+
+    if (meRes.rowCount === 0 || otherRes.rowCount === 0) {
+      return res.json({ ok: false, error: "USER_NOT_FOUND" });
+    }
+
+    await pool.query(`
+      UPDATE friends
+      SET status = 'accepted'
+      WHERE user_id = $2 AND friend_id = $1
+    `, [meRes.rows[0].id, otherRes.rows[0].id]);
+
+    res.json({ ok: true });
+
+  } catch (err) {
+    console.error("friends:accept:", err);
+    res.status(500).json({ ok: false });
+  }
+});
+
+app.post("/friends/reject", async (req, res) => {
+  const { username, fromUser } = req.body;
+
+  try {
+    const me = await pool.query("SELECT id FROM users WHERE username = $1", [username]);
+    const other = await pool.query("SELECT id FROM users WHERE username = $1", [fromUser]);
+
+    await pool.query(`
+      DELETE FROM friends
+      WHERE user_id = $2 AND friend_id = $1 AND status = 'pending'
+    `, [me.rows[0].id, other.rows[0].id]);
+
+    res.json({ ok: true });
+
+  } catch (err) {
+    console.error("friends:reject:", err);
+    res.status(500).json({ ok: false });
+  }
+});
+
+app.post("/friends/remove", async (req, res) => {
+  const { username, friend } = req.body;
+
+  try {
+    const me = await pool.query("SELECT id FROM users WHERE username = $1", [username]);
+    const other = await pool.query("SELECT id FROM users WHERE username = $1", [friend]);
+
+    await pool.query(`
+      DELETE FROM friends
+      WHERE status = 'accepted'
+        AND (
+          (user_id = $1 AND friend_id = $2) OR
+          (user_id = $2 AND friend_id = $1)
+        )
+    `, [me.rows[0].id, other.rows[0].id]);
+
+    res.json({ ok: true });
+
+  } catch (err) {
+    console.error("friends:remove:", err);
+    res.status(500).json({ ok: false });
+  }
+});
+
