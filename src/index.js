@@ -552,3 +552,175 @@ app.post("/friends/remove", async (req, res) => {
   }
 });
 
+// ===============================
+//   Tournament SYSTEM
+// ===============================
+
+app.get("/users/get", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        username,
+        avatar,
+        status,
+        country,
+        level,
+        xp,
+        rank,
+        is_admin AS "isAdmin"
+      FROM users
+      ORDER BY username ASC
+    `);
+
+    res.json(result.rows);
+
+  } catch (err) {
+    console.error("users:get:", err);
+    res.status(500).json([]);
+  }
+});
+
+app.get("/tournament/get", async (req, res) => {
+  try {
+    const activeRes = await pool.query(`
+      SELECT *
+      FROM tournaments
+      WHERE status = 'active'
+      LIMIT 1
+    `);
+
+    const pastRes = await pool.query(`
+      SELECT *
+      FROM tournaments
+      WHERE status = 'finished'
+      ORDER BY finished_at ASC
+    `);
+
+    res.json({
+      activeTournament: activeRes.rows[0] || null,
+      pastTournaments: pastRes.rows.map(t => ({
+        ...t,
+        finishedAt: t.finished_at,
+        winnerAvatar: t.winner_avatar,
+        trophy: t.trophy || "Trophy_0"
+      }))
+    });
+
+  } catch (err) {
+    console.error("tournament:get:", err);
+    res.status(500).json({
+      activeTournament: null,
+      pastTournaments: []
+    });
+  }
+});
+
+app.post("/tournament/create", async (req, res) => {
+  const {
+    name,
+    size,
+    players,
+    rewards,
+    bracket,
+    trophy
+  } = req.body;
+
+  try {
+    const exists = await pool.query(`
+      SELECT 1 FROM tournaments WHERE status = 'active'
+    `);
+
+    if (exists.rowCount > 0) {
+      return res.json({ error: "already_active" });
+    }
+
+    const result = await pool.query(`
+      INSERT INTO tournaments
+        (name, size, players, rewards, bracket, trophy, status)
+      VALUES
+        ($1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6, 'active')
+      RETURNING *
+    `, [
+      name,
+      size,
+      JSON.stringify(players),
+      JSON.stringify(rewards),
+      JSON.stringify(bracket),
+      trophy || "Trophy_0"
+    ]);
+
+    res.json({ ok: true, tournament: result.rows[0] });
+
+  } catch (err) {
+    console.error("tournament:create:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR" });
+  }
+});
+
+app.post("/tournament/update", async (req, res) => {
+  const { id, bracket, winner } = req.body;
+
+  try {
+    await pool.query(`
+      UPDATE tournaments
+      SET
+        bracket = $1::jsonb,
+        winner = $2
+      WHERE id = $3 AND status = 'active'
+    `, [
+      JSON.stringify(bracket),
+      winner,
+      id
+    ]);
+
+    res.json({ ok: true });
+
+  } catch (err) {
+    console.error("tournament:update:", err);
+    res.status(500).json({ ok: false });
+  }
+});
+
+app.post("/tournament/finish", async (req, res) => {
+  try {
+    const activeRes = await pool.query(`
+      SELECT *
+      FROM tournaments
+      WHERE status = 'active'
+      LIMIT 1
+    `);
+
+    if (activeRes.rowCount === 0) {
+      return res.json({ error: "no_active" });
+    }
+
+    const t = activeRes.rows[0];
+
+    let winnerAvatar = "default";
+
+    if (t.winner) {
+      const u = await pool.query(
+        "SELECT avatar FROM users WHERE username = $1",
+        [t.winner]
+      );
+      if (u.rowCount > 0 && u.rows[0].avatar) {
+        winnerAvatar = u.rows[0].avatar;
+      }
+    }
+
+    await pool.query(`
+      UPDATE tournaments
+      SET
+        status = 'finished',
+        winner_avatar = $1,
+        finished_at = NOW()
+      WHERE id = $2
+    `, [winnerAvatar, t.id]);
+
+    res.json({ ok: true });
+
+  } catch (err) {
+    console.error("tournament:finish:", err);
+    res.status(500).json({ ok: false });
+  }
+});
