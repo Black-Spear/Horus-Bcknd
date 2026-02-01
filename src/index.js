@@ -724,3 +724,309 @@ app.post("/tournament/finish", async (req, res) => {
     res.status(500).json({ ok: false });
   }
 });
+
+// ===============================
+//   Duel SYSTEM
+// ===============================
+
+async function getUserId(username) {
+  const res = await pool.query(
+    "SELECT id FROM users WHERE username = $1",
+    [username]
+  );
+  return res.rowCount ? res.rows[0].id : null;
+}
+
+async function expireOldDuels() {
+  const now = Date.now();
+  await pool.query(`
+    UPDATE duels
+    SET status = 'expired'
+    WHERE status IN ('pending','accepted')
+      AND expires_at < $1
+  `, [now]);
+}
+
+app.post("/duel/send", async (req, res) => {
+  try {
+    const { username, toUsername } = req.body;
+
+    if (!username) {
+      return res.json({ ok: false, error: "NOT_LOGGED" });
+    }
+
+    if (username === toUsername) {
+      return res.json({ ok: false, error: "INVALID_DUEL" });
+    }
+
+    await expireOldDuels();
+
+    const fromId = await getUserId(username);
+    const toId   = await getUserId(toUsername);
+
+    if (!fromId) {
+      return res.json({ ok: false, error: "NOT_LOGGED" });
+    }
+
+    if (!toId) {
+      return res.json({ ok: false, error: "USER_NOT_FOUND" });
+    }
+
+    // ¿ya está en duelo?
+    const active = await pool.query(`
+      SELECT 1 FROM duels
+      WHERE status IN ('pending','accepted')
+        AND (from_user = $1 OR to_user = $1)
+    `, [fromId]);
+
+    if (active.rowCount > 0) {
+      return res.json({ ok: false, error: "ALREADY_IN_DUEL" });
+    }
+
+    const now = Date.now();
+
+    const insert = await pool.query(`
+      INSERT INTO duels (from_user, to_user, status, created_at, expires_at)
+      VALUES ($1, $2, 'pending', $3, $4)
+      RETURNING id
+    `, [fromId, toId, now, now + DUEL_EXPIRE_TIME]);
+
+    const duel = {
+      id: insert.rows[0].id,
+      from: username,
+      to: toUsername,
+      status: "pending",
+      createdAt: now,
+      expiresAt: now + DUEL_EXPIRE_TIME
+    };
+
+    return res.json({ ok: true, duel });
+
+  } catch (err) {
+    console.error("POST /duel/send:", err);
+    return res.json({ ok: false, error: "INTERNAL_ERROR" });
+  }
+});
+
+app.post("/duel/accept", async (req, res) => {
+  try {
+    const { username, duelId } = req.body;
+
+    if (!username) {
+      return res.json({ ok: false, error: "NOT_LOGGED" });
+    }
+
+    await expireOldDuels();
+
+    const q = await pool.query(`
+      SELECT d.*,
+             uf.username AS from_name,
+             ut.username AS to_name
+      FROM duels d
+      JOIN users uf ON uf.id = d.from_user
+      JOIN users ut ON ut.id = d.to_user
+      WHERE d.id = $1 AND d.status = 'pending'
+    `, [duelId]);
+
+    if (q.rowCount === 0) {
+      return res.json({ ok: false, error: "DUEL_NOT_FOUND" });
+    }
+
+    await pool.query(
+      "UPDATE duels SET status = 'accepted' WHERE id = $1",
+      [duelId]
+    );
+
+    const d = q.rows[0];
+
+    return res.json({
+      ok: true,
+      duel: {
+        id: d.id,
+        from: d.from_name,
+        to: d.to_name,
+        status: "accepted",
+        createdAt: Number(d.created_at),
+        expiresAt: Number(d.expires_at)
+      }
+    });
+
+  } catch (err) {
+    console.error("POST /duel/accept:", err);
+    return res.json({ ok: false, error: "INTERNAL_ERROR" });
+  }
+});
+
+app.post("/duel/reject", async (req, res) => {
+  try {
+    const { username, duelId } = req.body;
+
+    if (!username) {
+      return res.json({ ok: false, error: "NOT_LOGGED" });
+    }
+
+    await pool.query(`
+      UPDATE duels
+      SET status = 'expired'
+      WHERE id = $1 AND status = 'pending'
+    `, [duelId]);
+
+    return res.json({ ok: true });
+
+  } catch (err) {
+    console.error("POST /duel/reject:", err);
+    return res.json({ ok: false, error: "INTERNAL_ERROR" });
+  }
+});
+
+app.post("/duel/expire", async (req, res) => {
+  try {
+    const { duelId } = req.body;
+
+    await pool.query(`
+      UPDATE duels
+      SET status = 'expired'
+      WHERE id = $1
+    `, [duelId]);
+
+    return res.json({ ok: true });
+
+  } catch (err) {
+    console.error("POST /duel/expire:", err);
+    return res.json({ ok: false });
+  }
+});
+
+app.get("/duel/current/:username", async (req, res) => {
+  try {
+    const { username } = req.params;
+    if (!username) return res.json(null);
+
+    await expireOldDuels();
+
+    const userId = await getUserId(username);
+    if (!userId) return res.json(null);
+
+    const q = await pool.query(`
+      SELECT d.*,
+             uf.username AS from_name,
+             ut.username AS to_name
+      FROM duels d
+      JOIN users uf ON uf.id = d.from_user
+      JOIN users ut ON ut.id = d.to_user
+      WHERE (d.from_user = $1 OR d.to_user = $1)
+        AND d.status IN ('pending','accepted')
+      ORDER BY d.created_at DESC
+      LIMIT 1
+    `, [userId]);
+
+    if (!q.rowCount) return res.json(null);
+
+    const d = q.rows[0];
+
+    return res.json({
+      id: d.id,
+      from: d.from_name,
+      to: d.to_name,
+      status: d.status,
+      createdAt: Number(d.created_at),
+      expiresAt: Number(d.expires_at)
+    });
+
+  } catch (err) {
+    console.error("GET /duel/current:", err);
+    return res.json(null);
+  }
+});
+
+app.post("/duel/report", async (req, res) => {
+  try {
+    const { duelId, player, result } = req.body;
+    if (!duelId || !player || !["win", "loss"].includes(result)) {
+      return res.json({ ok: false });
+    }
+
+    const q = await pool.query(`
+      SELECT d.*,
+             uf.id AS from_id, uf.username AS from_name,
+             ut.id AS to_id,   ut.username AS to_name
+      FROM duels d
+      JOIN users uf ON uf.id = d.from_user
+      JOIN users ut ON ut.id = d.to_user
+      WHERE d.id = $1 AND d.status = 'accepted'
+    `, [duelId]);
+
+    if (!q.rowCount) return res.json({ ok: false });
+
+    const duel = q.rows[0];
+
+    let userId = null;
+    if (player === duel.from_name) userId = duel.from_id;
+    if (player === duel.to_name)   userId = duel.to_id;
+    if (!userId) return res.json({ ok: false });
+
+    await pool.query(`
+      INSERT INTO duel_reports (duel_id, user_id, result, created_at)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (duel_id, user_id) DO NOTHING
+    `, [duelId, userId, result, Date.now()]);
+
+    return res.json({ ok: true });
+
+  } catch (err) {
+    console.error("POST /duel/report:", err);
+    return res.json({ ok: false });
+  }
+});
+
+app.get("/duel/check/:duelId", async (req, res) => {
+  try {
+    const { duelId } = req.params;
+
+    const q = await pool.query(`
+      SELECT dr.result, u.username
+      FROM duel_reports dr
+      JOIN users u ON u.id = dr.user_id
+      WHERE dr.duel_id = $1
+    `, [duelId]);
+
+    if (q.rowCount < 2) {
+      return res.json({ finished: false });
+    }
+
+    const reports = q.rows;
+    const wins  = reports.filter(r => r.result === "win");
+    const loses = reports.filter(r => r.result === "loss");
+
+    if (wins.length !== 1 || loses.length !== 1) {
+      await pool.query(
+        "UPDATE duels SET status = 'invalid' WHERE id = $1",
+        [duelId]
+      );
+
+      return res.json({ finished: true, invalid: true });
+    }
+
+    const winner = wins[0].username;
+    const loser  = loses[0].username;
+
+    await pool.query(`
+      UPDATE duels
+      SET status = 'finished',
+          winner = (SELECT id FROM users WHERE username = $1),
+          loser  = (SELECT id FROM users WHERE username = $2)
+      WHERE id = $3
+    `, [winner, loser, duelId]);
+
+    return res.json({
+      finished: true,
+      winner,
+      loser
+    });
+
+  } catch (err) {
+    console.error("GET /duel/check:", err);
+    return res.json({ finished: false });
+  }
+});
+
