@@ -3,6 +3,8 @@ const cors = require("cors");
 
 const app = express();
 
+const DUEL_EXPIRE_TIME = 1000 * 60 * 60; // 1 hora
+
 const { Pool } = require('pg');
 
 const pool = new Pool({
@@ -1029,4 +1031,5 @@ app.get("/duel/check/:duelId", async (req, res) => {
     return res.json({ finished: false });
   }
 });
+
 
