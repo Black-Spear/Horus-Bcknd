@@ -1032,4 +1032,85 @@ app.get("/duel/check/:duelId", async (req, res) => {
   }
 });
 
+// ===============================
+//   Chat SYSTEM
+// ===============================
 
+app.post("/chat/send", async (req, res) => {
+  const { from, to, message, avatar, timestamp } = req.body;
+  if (!from || !to || !message) {
+    return res.json({ ok: false });
+  }
+
+  await pool.query(`
+    INSERT INTO messages_queue (from_user, to_user, message, avatar, timestamp)
+    VALUES ($1,$2,$3,$4,$5)
+  `, [from, to, message, avatar || "default", timestamp]);
+
+  return res.json({ ok: true });
+});
+
+app.get("/chat/poll/:username", async (req, res) => {
+  const { username } = req.params;
+
+  const { rows } = await pool.query(`
+    SELECT *
+    FROM messages_queue
+    WHERE to_user = $1
+    ORDER BY timestamp ASC
+  `, [username]);
+
+  if (!rows.length) {
+    return res.json({ ok: true, messages: [] });
+  }
+
+  await pool.query(`
+    DELETE FROM messages_queue
+    WHERE to_user = $1
+  `, [username]);
+
+  return res.json({ ok: true, messages: rows });
+});
+
+app.post("/chat/style", async (req, res) => {
+  const { username, style } = req.body;
+  if (!username || !style) return res.json({ ok: false });
+
+  await pool.query(
+    "UPDATE users SET chat_style = $1 WHERE username = $2",
+    [style, username]
+  );
+
+  res.json({ ok: true });
+});
+
+app.post("/chat/typing", (req, res) => {
+  const { from, to, isTyping } = req.body;
+  if (!from || !to) return res.json({ ok: false });
+
+  global.typingStates ??= new Map();
+
+  if (isTyping) {
+    global.typingStates.set(`${from}->${to}`, {
+      from, to, ts: Date.now()
+    });
+  } else {
+    global.typingStates.delete(`${from}->${to}`);
+  }
+
+  res.json({ ok: true });
+});
+
+app.get("/chat/typing/:username", (req, res) => {
+  const { username } = req.params;
+  const now = Date.now();
+
+  const active = [];
+  for (const v of global.typingStates?.values() || []) {
+    if (v.to === username && now - v.ts < 3000) {
+      active.push({ from: v.from });
+    }
+  }
+
+  res.json({ ok: true, typing: active });
+});
