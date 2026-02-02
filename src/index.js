@@ -1133,8 +1133,9 @@ setInterval(async () => {
       UPDATE users
       SET status = 'offline'
       WHERE last_seen < (extract(epoch from now()) * 1000 - 35000)
-    );
+    `);
   } catch (err) {
     console.error("STATUS CLEANUP ERROR:", err);
   }
 }, 25000);
+
