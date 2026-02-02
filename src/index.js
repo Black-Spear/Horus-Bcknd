@@ -267,6 +267,18 @@ app.post("/user/set-status", async (req, res) => {
   }
 });
 
+app.post("/status/ping", async (req, res) => {
+  const { username } = req.body;
+  if (!username) return res.sendStatus(400);
+
+  await pool.query(
+    `UPDATE users SET status = 'online', last_seen = $2 WHERE username = $1`,
+    [username, Date.now()]
+  );
+
+  res.json({ ok: true });
+});
+
 // POST /competitive/reset-all
 app.post("/competitive/reset-all", async (req, res) => {
   try {
@@ -1114,3 +1126,4 @@ app.get("/chat/typing/:username", (req, res) => {
 
   res.json({ ok: true, typing: active });
 });
+
