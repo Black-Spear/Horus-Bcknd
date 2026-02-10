@@ -1153,9 +1153,9 @@ app.post("/admin/verify-critical", async (req, res) => {
       [username]
     );
 
-    /*if (!rows.length || Number(rows[0].admin_level) !== 5) {
+    if (!rows.length || Number(rows[0].admin_level) !== 5) {
       return res.status(403).json({ ok: false });
-    }*/
+    }
 
     const valid = await bcrypt.compare(
       password,
@@ -1172,18 +1172,5 @@ app.post("/admin/verify-critical", async (req, res) => {
     console.error("CRITICAL VERIFY ERROR:", err);
     return res.status(500).json({ ok: false });
   }
-});
-
-app.get("/debug/bcrypt-test", async (req, res) => {
-  const testPassword = "Gungnir111001";
-  const hash = process.env.CRITICAL_ADMIN_PASSWORD_HASH;
-
-  const result = await bcrypt.compare(testPassword, hash);
-
-  res.json({
-    password: testPassword,
-    hash,
-    result
-  });
 });
 
