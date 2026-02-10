@@ -1139,3 +1139,28 @@ setInterval(async () => {
   }
 }, 25000);
 
+CRITICAL_ADMIN_PASSWORD_HASH=hash_bcrypt
+
+bcrypt.hashSync("Gungnir111001", 10);
+
+app.post("/admin/verify-critical", async (req, res) => {
+  const { password, username } = req.body;
+
+  if (!password || !username) {
+    return res.status(400).json({ ok: false });
+  }
+
+  // opcional: verificar que el usuario sea admin lvl 5
+  const user = await getUser(username);
+  if (!user || user.AdminLevel !== 5) {
+    return res.status(403).json({ ok: false });
+  }
+
+  const valid = await bcrypt.compare(
+    password,
+    process.env.CRITICAL_ADMIN_PASSWORD_HASH
+  );
+
+  res.json({ ok: valid });
+  console.log(`[CRITICAL] ${username} intentó reinicio`);
+});
