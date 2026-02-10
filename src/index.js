@@ -1139,10 +1139,6 @@ setInterval(async () => {
   }
 }, 25000);
 
-CRITICAL_ADMIN_PASSWORD_HASH=hash_bcrypt
-
-bcrypt.hashSync("Gungnir111001", 10);
-
 app.post("/admin/verify-critical", async (req, res) => {
   const { password, username } = req.body;
 
@@ -1164,3 +1160,4 @@ app.post("/admin/verify-critical", async (req, res) => {
   res.json({ ok: valid });
   console.log(`[CRITICAL] ${username} intentó reinicio`);
 });
+
