@@ -1142,27 +1142,46 @@ setInterval(async () => {
 
 app.post("/admin/verify-critical", async (req, res) => {
   try {
+    console.log("[CRITICAL] BODY:", req.body);
+
     const { password, username } = req.body;
 
     if (!password || !username) {
+      console.log("[CRITICAL] missing data");
       return res.status(400).json({ ok: false });
     }
 
-    // Obtener usuario y nivel admin
     const { rows } = await pool.query(
       "SELECT admin_level FROM users WHERE username = $1",
       [username]
     );
 
-    if (!rows.length || rows[0].admin_level !== 5) {
+    console.log("[CRITICAL] DB rows:", rows);
+
+    if (!rows.length) {
+      console.log("[CRITICAL] user not found");
       return res.status(403).json({ ok: false });
     }
 
-    // Verificar contraseña crítica
+    console.log(
+      "[CRITICAL] admin_level:",
+      rows[0].admin_level,
+      typeof rows[0].admin_level
+    );
+
+    if (Number(rows[0].admin_level) !== 5) {
+      console.log("[CRITICAL] not admin lvl 5");
+      return res.status(403).json({ ok: false });
+    }
+
+    console.log("[CRITICAL] HASH:", process.env.CRITICAL_ADMIN_PASSWORD_HASH);
+
     const valid = await bcrypt.compare(
       password,
       process.env.CRITICAL_ADMIN_PASSWORD_HASH
     );
+
+    console.log("[CRITICAL] bcrypt result:", valid);
 
     if (valid) {
       console.log(`[CRITICAL] ${username} intentó reinicio`);
@@ -1175,4 +1194,6 @@ app.post("/admin/verify-critical", async (req, res) => {
     return res.status(500).json({ ok: false });
   }
 });
+
+
 
