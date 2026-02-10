@@ -1147,7 +1147,7 @@ app.post("/admin/verify-critical", async (req, res) => {
   }
 
   // opcional: verificar que el usuario sea admin lvl 5
-  const user = await getUser(username);
+  const user = await pool.query("SELECT id FROM users WHERE username = $1", [username];
   if (!user || user.AdminLevel !== 5) {
     return res.status(403).json({ ok: false });
   }
@@ -1160,4 +1160,5 @@ app.post("/admin/verify-critical", async (req, res) => {
   res.json({ ok: valid });
   console.log(`[CRITICAL] ${username} intentó reinicio`);
 });
+
 
