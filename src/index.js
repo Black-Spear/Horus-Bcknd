@@ -1174,3 +1174,16 @@ app.post("/admin/verify-critical", async (req, res) => {
   }
 });
 
+app.get("/debug/bcrypt-test", async (req, res) => {
+  const testPassword = "Gungnir111001";
+  const hash = process.env.CRITICAL_ADMIN_PASSWORD_HASH;
+
+  const result = await bcrypt.compare(testPassword, hash);
+
+  res.json({
+    password: testPassword,
+    hash,
+    result
+  });
+});
+
