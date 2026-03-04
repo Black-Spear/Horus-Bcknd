@@ -74,6 +74,7 @@ app.post("/register", async (req, res) => {
   const { username, password, email } = req.body;
 
   try {
+
     const exists = await pool.query(
       "SELECT 1 FROM users WHERE username = $1 OR email = $2",
       [username, email]
@@ -83,7 +84,11 @@ app.post("/register", async (req, res) => {
       return res.json({ success: false, error: "USER_Already_Exists" });
     }
 
-    await pool.query(`
+    // =========================
+    // CREAR USUARIO
+    // =========================
+
+    const insert = await pool.query(`
       INSERT INTO users (
         username, password, email,
         xp, level, hours_played,
@@ -104,13 +109,37 @@ app.post("/register", async (req, res) => {
         '{"index":0,"points":0,"totalpoints":0,"wins":0,"losses":0}'::jsonb,
         true
       )
+      RETURNING id
     `, [username, hashPassword(password), email]);
+
+    const userId = insert.rows[0].id;
+
+    // =========================
+    // AVATARS INICIALES
+    // =========================
+
+    await pool.query(`
+      INSERT INTO user_avatars (user_id, avatar_id)
+      VALUES
+      ($1,'default'),
+      ($1,'0'),
+      ($1,'1'),
+      ($1,'2'),
+      ($1,'3'),
+      ($1,'4')
+    `, [userId]);
 
     res.json({ success: true, user: username });
 
   } catch (err) {
+
     console.error("REGISTER ERROR:", err);
-    res.status(500).json({ success: false, error: "SERVER_ERROR" });
+
+    res.status(500).json({
+      success: false,
+      error: "SERVER_ERROR"
+    });
+
   }
 });
 
@@ -1215,5 +1244,6 @@ app.post("/admin/verify-critical", async (req, res) => {
     return res.status(500).json({ ok: false });
   }
 });
+
 
 
