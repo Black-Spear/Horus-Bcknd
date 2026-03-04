@@ -135,8 +135,10 @@ app.get("/user/:username", async (req, res) => {
   const { username } = req.params;
 
   try {
-    const r = await pool.query(`
+
+    const user = await pool.query(`
       SELECT
+        id,
         username,
         xp,
         level,
@@ -158,11 +160,22 @@ app.get("/user/:username", async (req, res) => {
       WHERE username = $1
     `, [username]);
 
-    if (r.rowCount === 0) {
+    if (user.rowCount === 0) {
       return res.json(null);
     }
 
-    res.json(r.rows[0]);
+    const userData = user.rows[0];
+
+    // 🔹 obtener avatars desbloqueados
+    const avatars = await pool.query(`
+      SELECT avatar_id
+      FROM user_avatars
+      WHERE user_id = $1
+    `, [userData.id]);
+
+    userData.unlockedAvatars = avatars.rows.map(a => a.avatar_id);
+
+    res.json(userData);
 
   } catch (err) {
     console.error("GET USER DATA ERROR:", err);
@@ -218,6 +231,35 @@ app.post("/user/save", async (req, res) => {
   } catch (err) {
     console.error("SAVE USER ERROR:", err);
     res.status(500).json({ success: false });
+  }
+});
+
+app.post("/user/unlock-avatar", async (req, res) => {
+  const { username, avatarId } = req.body;
+
+  try {
+
+    const user = await pool.query(
+      "SELECT id FROM users WHERE username = $1",
+      [username]
+    );
+
+    if (user.rowCount === 0)
+      return res.json({ success:false });
+
+    const userId = user.rows[0].id;
+
+    await pool.query(`
+      INSERT INTO user_avatars (user_id, avatar_id)
+      VALUES ($1, $2)
+      ON CONFLICT DO NOTHING
+    `, [userId, avatarId]);
+
+    res.json({ success:true });
+
+  } catch (err) {
+    console.error("UNLOCK AVATAR ERROR:", err);
+    res.status(500).json({ success:false });
   }
 });
 
@@ -1173,4 +1215,5 @@ app.post("/admin/verify-critical", async (req, res) => {
     return res.status(500).json({ ok: false });
   }
 });
+
 
