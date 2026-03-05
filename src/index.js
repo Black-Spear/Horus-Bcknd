@@ -197,7 +197,8 @@ app.get("/user/:username", async (req, res) => {
 
     // 🔹 obtener avatars desbloqueados
     const avatars = await pool.query(`
-      SELECT avatar_id
+      SELECT avatar_id,
+      obtained_at
       FROM user_avatars
       WHERE user_id = $1
     `, [userData.id]);
@@ -1244,6 +1245,7 @@ app.post("/admin/verify-critical", async (req, res) => {
     return res.status(500).json({ ok: false });
   }
 });
+
 
 
 
