@@ -295,12 +295,12 @@ app.post("/user/unlock-avatar", async (req, res) => {
 
 app.post("/avatares-stock/get", async (req, res) => {
   try {
-    await pool.query(`
+    const result = await pool.query(`
     SELECT avatar_id, rarity, icon, name
     FROM avatars_catalog
   `);
 
-    res.json({ success: true });
+    res.json({ result.rows });
 
   } catch (err) {
     console.error("GET STOCK ERROR:", err);
@@ -1260,6 +1260,7 @@ app.post("/admin/verify-critical", async (req, res) => {
     return res.status(500).json({ ok: false });
   }
 });
+
 
 
 
