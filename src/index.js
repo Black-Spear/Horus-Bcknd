@@ -316,6 +316,45 @@ app.post("/avatares-stock/get", async (req, res) => {
   }
 });
 
+app.post("/user/avatars-dates", async (req, res) => {
+
+  const { username } = req.body;
+
+  try {
+
+    const user = await pool.query(`
+      SELECT id
+      FROM users
+      WHERE username = $1
+    `, [username]);
+
+    if (user.rowCount === 0)
+      return res.json({ rows: [] });
+
+    const userId = user.rows[0].id;
+
+    const result = await pool.query(`
+      SELECT avatar_id, unlocked_at
+      FROM user_avatars
+      WHERE user_id = $1
+    `, [userId]);
+
+    res.json({
+      rows: result.rows
+    });
+
+  } catch (err) {
+
+    console.error("GET AVATAR DATES ERROR:", err);
+
+    res.status(500).json({
+      success: false
+    });
+
+  }
+
+});
+
 app.post("/user/update-field", async (req, res) => {
   const { username, field, value } = req.body;
 
@@ -1268,6 +1307,7 @@ app.post("/admin/verify-critical", async (req, res) => {
     return res.status(500).json({ ok: false });
   }
 });
+
 
 
 
