@@ -1200,23 +1200,60 @@ app.post("/chat/send", async (req, res) => {
 app.get("/chat/poll/:username", async (req, res) => {
   const { username } = req.params;
 
-  const { rows } = await pool.query(`
-    SELECT *
-    FROM messages_queue
-    WHERE to_user = $1
-    ORDER BY timestamp ASC
-  `, [username]);
+  try {
+    // ?? 1. MENSAJES
+    const { rows: messages } = await pool.query(`
+      SELECT *
+      FROM messages_queue
+      WHERE to_user = $1
+      ORDER BY timestamp ASC
+    `, [username]);
 
-  if (!rows.length) {
-    return res.json({ ok: true, messages: [] });
+    if (messages.length) {
+      await pool.query(`
+        DELETE FROM messages_queue
+        WHERE to_user = $1
+      `, [username]);
+    }
+
+    // ?? 3. DUELOS (opcional si ya lo usás)
+    const { rows: duels } = await pool.query(`
+      SELECT *
+      FROM duels_queue
+      WHERE to_user = $1
+    `, [username]);
+
+    if (duels.length) {
+      await pool.query(`
+        DELETE FROM duels_queue
+        WHERE to_user = $1
+      `, [username]);
+    }
+
+    // ?? 4. ESTADOS DE AMIGOS (CLAVE)
+    const { rows: friends } = await pool.query(`
+      SELECT u.username, u.status
+      FROM users u
+      JOIN friends f 
+        ON (f.friend1 = u.username OR f.friend2 = u.username)
+      WHERE ($1 IN (f.friend1, f.friend2))
+      AND u.username != $1
+    `, [username]);
+
+    return res.json({
+      ok: true,
+      messages,
+      duels,
+      statuses: friends
+    });
+
+  } catch (err) {
+    console.error("POLL ERROR:", err);
+    return res.json({
+      ok: false,
+      error: "POLL_FAILED"
+    });
   }
-
-  await pool.query(`
-    DELETE FROM messages_queue
-    WHERE to_user = $1
-  `, [username]);
-
-  return res.json({ ok: true, messages: rows });
 });
 
 app.post("/chat/style", async (req, res) => {
