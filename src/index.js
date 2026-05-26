@@ -6,6 +6,15 @@ const app = express();
 
 const DUEL_EXPIRE_TIME = 1000 * 60 * 60; // 1 hora
 
+// ========================================
+// ESTADOS GLOBALES DEL SERVICIO
+// ========================================
+
+const SERVICE_STATUS = {
+  launcher: "online",
+  ranked: "online"
+};
+
 const { Pool } = require('pg');
 
 const pool = new Pool({
@@ -42,7 +51,36 @@ function hashPassword(pwd) {
   return crypto.createHash("sha256").update(pwd).digest("hex");
 }
 
+function checkService(serviceName) {
+
+  const status = SERVICE_STATUS[serviceName];
+
+  if (status === "online") {
+    return {
+      success: true
+    };
+  }
+
+  if (status === "maintenance") {
+    return {
+      success: false,
+      error: "SERVICE_MAINTENANCE"
+    };
+  }
+
+  return {
+    success: false,
+    error: "SERVICE_OFFLINE"
+  };
+}
+
 app.post("/login", async (req, res) => {
+  const serviceCheck = checkService("launcher");
+
+  if (!serviceCheck.success) {
+    return res.json(serviceCheck);
+  }
+
   const { username, password } = req.body;
 
   try {
@@ -71,6 +109,12 @@ app.post("/login", async (req, res) => {
 
 
 app.post("/register", async (req, res) => {
+  const serviceCheck = checkService("launcher");
+
+  if (!serviceCheck.success) {
+    return res.json(serviceCheck);
+  }
+  
   const { username, password, email } = req.body;
 
   try {
