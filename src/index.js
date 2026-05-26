@@ -941,6 +941,15 @@ async function expireOldDuels() {
 }
 
 app.post("/duel/send", async (req, res) => {
+
+  if (SERVICE_STATUS.ranked !== "ONLINE") {
+  
+    return res.json({
+      ok: false,
+      error: `RANKED_${SERVICE_STATUS.ranked}`
+    });
+  }
+  
   try {
     const { username, toUsername } = req.body;
 
