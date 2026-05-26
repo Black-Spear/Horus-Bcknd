@@ -102,8 +102,37 @@ app.post("/login", async (req, res) => {
     res.json({ success: true, user: username });
 
   } catch (err) {
+
     console.error("LOGIN ERROR:", err);
-    res.status(500).json({ success: false, error: "SERVER_ERROR" });
+  
+    // ====================================
+    // DATABASE / NETWORK OFFLINE
+    // ====================================
+  
+    if (
+      err.code === "ECONNREFUSED" ||
+      err.code === "ENOTFOUND" ||
+      err.code === "ETIMEDOUT" ||
+      err.code === "57P01" ||
+      err.code === "ECONNRESET" ||
+      err.message?.includes("timeout") ||
+      err.message?.includes("connect")
+    ) {
+  
+      return res.status(503).json({
+        success: false,
+        error: "SERVER_OFFLINE"
+      });
+  
+    }
+    // ====================================
+    // ERROR GENÉRICO
+    // ====================================
+  
+    return res.status(500).json({
+      success: false,
+      error: "SERVER_ERROR"
+    });
   }
 });
 
@@ -177,13 +206,37 @@ app.post("/register", async (req, res) => {
 
   } catch (err) {
 
-    console.error("REGISTER ERROR:", err);
-
-    res.status(500).json({
+    console.error("LOGIN ERROR:", err);
+  
+    // ====================================
+    // DATABASE / NETWORK OFFLINE
+    // ====================================
+  
+    if (
+      err.code === "ECONNREFUSED" ||
+      err.code === "ENOTFOUND" ||
+      err.code === "ETIMEDOUT" ||
+      err.code === "57P01" ||
+      err.code === "ECONNRESET" ||
+      err.message?.includes("timeout") ||
+      err.message?.includes("connect")
+    ) {
+  
+      return res.status(503).json({
+        success: false,
+        error: "SERVER_OFFLINE"
+      });
+  
+    }
+  
+    // ====================================
+    // ERROR GENÉRICO
+    // ====================================
+  
+    return res.status(500).json({
       success: false,
       error: "SERVER_ERROR"
     });
-
   }
 });
 
