@@ -1055,6 +1055,24 @@ app.post("/duel/send", async (req, res) => {
       expiresAt: now + DUEL_EXPIRE_TIME
     };
 
+    await pool.query(`
+      INSERT INTO duel_events
+      (
+        duel_id,
+        target_user,
+        type,
+        payload,
+        created_at
+      )
+      VALUES ($1, $2, $3, $4, $5)
+    `, [
+      duel.id,
+      toUsername,
+      "incoming",
+      JSON.stringify(duel),
+      now
+    ]);
+
     return res.json({ ok: true, duel });
 
   } catch (err) {
@@ -1322,19 +1340,25 @@ app.get("/chat/poll/:username", async (req, res) => {
       `, [username]);
     }
 
-    // ?? 3. DUELOS (opcional si ya lo usás)
-    const { rows: duels } = await pool.query(`
+    // =========================
+    // 2. DUELOS (EVENTOS)
+    // =========================
+
+    const { rows: duelEvents } = await pool.query(`
       SELECT *
-      FROM duels
-      WHERE to_user = $1
+      FROM duel_events
+      WHERE target_user = $1
+      ORDER BY created_at ASC
     `, [username]);
 
-    if (duels.length) {
+    if (duelEvents.length) {
       await pool.query(`
-        DELETE FROM duels
-        WHERE to_user = $1
+        DELETE FROM duel_events
+        WHERE target_user = $1
       `, [username]);
     }
+
+    const duels = duelEvents.map(e => e.payload);
 
     // ?? 4. ESTADOS DE AMIGOS (CLAVE)
     const { rows: friends } = await pool.query(`
