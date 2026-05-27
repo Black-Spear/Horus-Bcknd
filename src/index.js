@@ -11,7 +11,7 @@ const DUEL_EXPIRE_TIME = 1000 * 60 * 60; // 1 hora
 // ========================================
 
 const SERVICE_STATUS = {
-  launcher: "maintenance",
+  launcher: "online",
   ranked: "offline"
 };
 
