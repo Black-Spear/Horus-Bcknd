@@ -988,7 +988,7 @@ async function expireOldDuels() {
   await pool.query(`
     UPDATE duels
     SET status = 'expired'
-    WHERE status IN ('pending','accepted')
+    WHERE status = 'pending'
       AND expires_at < $1
   `, [now]);
 }
@@ -1031,8 +1031,13 @@ app.post("/duel/send", async (req, res) => {
     const active = await pool.query(`
       SELECT 1 FROM duels
       WHERE status IN ('pending','accepted')
-        AND (from_user = $1 OR to_user = $1)
-    `, [fromId]);
+        AND (
+          from_user = $1 OR
+          to_user   = $1 OR
+          from_user = $2 OR
+          to_user   = $2
+        )
+    `, [fromId, toId]);
 
     if (active.rowCount > 0) {
       return res.json({ ok: false, error: "ALREADY_IN_DUEL" });
@@ -1112,16 +1117,38 @@ app.post("/duel/accept", async (req, res) => {
 
     const d = q.rows[0];
 
+    // 🔥 MISMO PAYLOAD DE SIEMPRE
+    const duel = {
+      id: d.id,
+      from: d.from_name,
+      to: d.to_name,
+      status: "accepted",
+      createdAt: Number(d.created_at),
+      expiresAt: Number(d.expires_at)
+    };
+
+    // 🔥 NUEVO EVENTO PARA EL QUE ENVIÓ EL DUELO
+    await pool.query(`
+      INSERT INTO duel_events
+      (
+        duel_id,
+        target_user,
+        type,
+        payload,
+        created_at
+      )
+      VALUES ($1, $2, $3, $4, $5)
+    `, [
+      duel.id,
+      d.from_name,
+      "accepted",
+      JSON.stringify(duel),
+      Date.now()
+    ]);
+
     return res.json({
       ok: true,
-      duel: {
-        id: d.id,
-        from: d.from_name,
-        to: d.to_name,
-        status: "accepted",
-        createdAt: Number(d.created_at),
-        expiresAt: Number(d.expires_at)
-      }
+      duel
     });
 
   } catch (err) {
@@ -1138,11 +1165,46 @@ app.post("/duel/reject", async (req, res) => {
       return res.json({ ok: false, error: "NOT_LOGGED" });
     }
 
+    const q = await pool.query(`
+      SELECT d.*,
+             uf.username AS from_name,
+             ut.username AS to_name
+      FROM duels d
+      JOIN users uf ON uf.id = d.from_user
+      JOIN users ut ON ut.id = d.to_user
+      WHERE d.id = $1 AND d.status = 'pending'
+    `, [duelId]);
+
+    if (q.rowCount === 0) {
+      return res.json({ ok: false, error: "DUEL_NOT_FOUND" });
+    }
+
     await pool.query(`
       UPDATE duels
       SET status = 'expired'
       WHERE id = $1 AND status = 'pending'
     `, [duelId]);
+
+    const d = q.rows[0];
+
+    // 🔥 EVENTO PARA EL EMISOR
+    await pool.query(`
+      INSERT INTO duel_events
+      (
+        duel_id,
+        target_user,
+        type,
+        payload,
+        created_at
+      )
+      VALUES ($1, $2, $3, $4, $5)
+    `, [
+      duelId,
+      d.from_name,
+      "rejected",
+      JSON.stringify({ duelId }),
+      Date.now()
+    ]);
 
     return res.json({ ok: true });
 
@@ -1156,17 +1218,59 @@ app.post("/duel/expire", async (req, res) => {
   try {
     const { duelId } = req.body;
 
+    const q = await pool.query(`
+      SELECT d.*,
+             uf.username AS from_name,
+             ut.username AS to_name
+      FROM duels d
+      JOIN users uf ON uf.id = d.from_user
+      JOIN users ut ON ut.id = d.to_user
+      WHERE d.id = $1
+    `, [duelId]);
+
+    if (q.rowCount === 0) {
+      return res.json({ ok: false, error: "DUEL_NOT_FOUND" });
+    }
+
     await pool.query(`
       UPDATE duels
       SET status = 'expired'
       WHERE id = $1
     `, [duelId]);
 
+    const d = q.rows[0];
+
+    // 🔥 EVENTO PARA AMBOS
+    await pool.query(`
+      INSERT INTO duel_events
+      (
+        duel_id,
+        target_user,
+        type,
+        payload,
+        created_at
+      )
+      VALUES
+        ($1, $2, $3, $4, $5),
+        ($1, $6, $3, $4, $5)
+    `, [
+      duelId,
+      d.from_name,
+      "expired",
+      JSON.stringify({ duelId }),
+      Date.now(),
+      d.to_name
+    ]);
+
     return res.json({ ok: true });
 
   } catch (err) {
     console.error("POST /duel/expire:", err);
-    return res.json({ ok: false });
+
+    return res.json({
+      ok: false,
+      error: "INTERNAL_ERROR"
+    });
   }
 });
 
@@ -1325,7 +1429,10 @@ app.get("/chat/poll/:username", async (req, res) => {
   const { username } = req.params;
 
   try {
-    // ?? 1. MENSAJES
+    // =========================
+    // 1. MENSAJES
+    // =========================
+
     const { rows: messages } = await pool.query(`
       SELECT *
       FROM messages_queue
@@ -1358,9 +1465,35 @@ app.get("/chat/poll/:username", async (req, res) => {
       `, [username]);
     }
 
-    const duels = duelEvents.map(e => e.payload);
+    // 🔥 NUEVO: separar por tipo
+    const duels = [];
+    const duelAccepted = [];
+    const duelRejected = [];
+    const duelExpired = [];
 
-    // ?? 4. ESTADOS DE AMIGOS (CLAVE)
+    for (const e of duelEvents) {
+
+      if (e.type === "incoming") {
+        duels.push(e.payload);
+      }
+
+      if (e.type === "accepted") {
+        duelAccepted.push(e.payload);
+      }
+
+      if (e.type === "rejected") {
+        duelRejected.push(e.payload);
+      }
+
+      if (e.type === "expired") {
+        duelExpired.push(e.payload);
+      }
+    }
+
+    // =========================
+    // 3. ESTADOS DE AMIGOS
+    // =========================
+
     const { rows: friends } = await pool.query(`
       SELECT u.username, u.status
       FROM friends f
@@ -1371,15 +1504,26 @@ app.get("/chat/poll/:username", async (req, res) => {
       WHERE f.user_id = me.id
     `, [username]);
 
+    // =========================
+    // RESPONSE
+    // =========================
+
     return res.json({
       ok: true,
+      // chat
       messages,
+      // duel system
       duels,
+      duelAccepted,
+      duelRejected,
+      duelExpired,
+      // social
       statuses: friends
     });
 
   } catch (err) {
     console.error("POLL ERROR:", err);
+
     return res.json({
       ok: false,
       error: "POLL_FAILED"
