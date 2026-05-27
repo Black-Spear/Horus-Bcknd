@@ -1325,13 +1325,13 @@ app.get("/chat/poll/:username", async (req, res) => {
     // ?? 3. DUELOS (opcional si ya lo usás)
     const { rows: duels } = await pool.query(`
       SELECT *
-      FROM duels_queue
+      FROM duels
       WHERE to_user = $1
     `, [username]);
 
     if (duels.length) {
       await pool.query(`
-        DELETE FROM duels_queue
+        DELETE FROM duels
         WHERE to_user = $1
       `, [username]);
     }
