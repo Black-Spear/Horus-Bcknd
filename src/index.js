@@ -1363,11 +1363,12 @@ app.get("/chat/poll/:username", async (req, res) => {
     // ?? 4. ESTADOS DE AMIGOS (CLAVE)
     const { rows: friends } = await pool.query(`
       SELECT u.username, u.status
-      FROM users u
-      JOIN friends f 
-        ON (f.friend1 = u.username OR f.friend2 = u.username)
-      WHERE ($1 IN (f.friend1, f.friend2))
-      AND u.username != $1
+      FROM friends f
+      JOIN users me
+        ON me.username = $1
+      JOIN users u
+        ON u.id = f.friend_id
+      WHERE f.user_id = me.id
     `, [username]);
 
     return res.json({
