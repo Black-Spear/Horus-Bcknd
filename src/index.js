@@ -1655,7 +1655,62 @@ app.get("/reward-events/:username", async (req, res) => {
   }
 });
 
+app.post("/reward/give", async (req, res) => {
+  try {
 
+    const {
+      targetUser,
+      type,
+      payload
+    } = req.body;
+
+    if (!targetUser || !type) {
+      return res.json({
+        ok: false,
+        error: "INVALID_DATA"
+      });
+    }
+
+    await pool.query(`
+      INSERT INTO reward_events
+      (
+        target_user,
+        type,
+        payload,
+        created_at
+      )
+      VALUES
+      (
+        $1,
+        $2,
+        $3,
+        $4
+      )
+    `, [
+      targetUser,
+      type,
+      JSON.stringify(payload || {}),
+      Date.now()
+    ]);
+
+    return res.json({
+      ok: true
+    });
+
+  } catch (err) {
+
+    console.error(
+      "POST /reward/give:",
+      err
+    );
+
+    return res.json({
+      ok: false,
+      error: "INTERNAL_ERROR"
+    });
+
+  }
+});
 
 
 
