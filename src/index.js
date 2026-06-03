@@ -1620,7 +1620,40 @@ app.post("/admin/verify-critical", async (req, res) => {
   }
 });
 
+app.get("/reward-events/:username", async (req, res) => {
+  const { username } = req.params;
 
+  try {
+
+    const { rows } = await pool.query(`
+      SELECT *
+      FROM reward_events
+      WHERE target_user = $1
+      ORDER BY created_at ASC
+    `, [username]);
+
+    if (rows.length) {
+      await pool.query(`
+        DELETE FROM reward_events
+        WHERE target_user = $1
+      `, [username]);
+    }
+
+    return res.json({
+      ok: true,
+      events: rows
+    });
+
+  } catch (err) {
+
+    console.error("GET /reward-events:", err);
+
+    return res.json({
+      ok: false,
+      events: []
+    });
+  }
+});
 
 
 
