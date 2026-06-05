@@ -971,6 +971,44 @@ app.post("/tournament/finish", async (req, res) => {
   }
 });
 
+app.get("/tournament/champion-check", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        id,
+        name,
+        winner,
+        status
+      FROM tournaments
+      WHERE winner IS NOT NULL
+        AND status = 'active'
+      ORDER BY id DESC
+      LIMIT 1
+    `);
+
+    if (result.rowCount === 0) {
+      return res.json({
+        ok: true,
+        tournament: null
+      });
+    }
+
+    res.json({
+      ok: true,
+      tournament: result.rows[0]
+    });
+
+  } catch (err) {
+
+    console.error("tournament:champion-check:", err);
+
+    res.status(500).json({
+      ok: false,
+      tournament: null
+    });
+  }
+});
+
 // ===============================
 //   Duel SYSTEM
 // ===============================
